@@ -5,12 +5,12 @@ A raytracer in https://ziglang.org/[Zig]. I've just started it!
 It can currently render a simple scene in solid color (no lighting, shadows,
 reflections, etc.).
 
-This is what it can currently render:
-
-image::images/foo1.tga.png[red green and blue spheres that look like boring circles without any lighting]
 
 I'm working from the book 
 https://nostarch.com/computer-graphics-scratch[Computer Graphics from Scratch] by Gabriel Gambetta.
 I'm learning a ton and enjoying myself very much.
 
 
+This is what it can currently render:
+
+image::images/foo1.tga.png[red green and blue spheres that look like boring circles without any lighting]
