@@ -54,17 +54,22 @@ const spheres = [_]Sphere{
     Sphere{
         .center = Vec3.new(0, -0.5, 3),
         .radius = 1,
-        .color = Color{ .r = 255 },
+        .color = Color{ .r = 171, .g = 222, .b = 20 },
+    },
+    Sphere{
+        .center = Vec3.new(0.3, 0.4, 2.5),
+        .radius = 0.3,
+        .color = Color{ .r = 235, .g = 107, .b = 30 },
+    },
+    Sphere{
+        .center = Vec3.new(-0.6, 0.35, 2.7),
+        .radius = 0.4,
+        .color = Color{ .r = 245, .g = 188, .b = 10 },
     },
     Sphere{
         .center = Vec3.new(2, 0, 4),
         .radius = 1,
-        .color = Color{ .b = 255 },
-    },
-    Sphere{
-        .center = Vec3.new(-2, 0, 8),
-        .radius = 1,
-        .color = Color{ .g = 255 },
+        .color = Color{ .r = 9, .g = 203, .b = 235 },
     },
 };
 
