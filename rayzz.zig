@@ -2,6 +2,10 @@ const std = @import("std");
 
 const output_fname = "foo.tga";
 
+// set to true for specific rays below as desired
+var debug: bool = false;
+
+
 // Canvas width x height - canvas is the image we produce, in pixels.
 const width: u16 = 640;
 const height: u16 = 480;
@@ -21,6 +25,16 @@ const Vec3 = struct {
         return self.x * other.x + self.y * other.y + self.z * other.z;
     }
 
+    // The sum of all components of 'other' from 'self'.
+    // If the two inputs are points, the output is a vector.
+    pub fn plus(self: Vec3, other: Vec3) Vec3 {
+        return Vec3.new(
+            self.x + other.x,
+            self.y + other.y,
+            self.z + other.z,
+        );
+    }
+
     // The difference of all components of 'other' from 'self'.
     // If the two inputs are points, the output is a vector.
     pub fn minus(self: Vec3, other: Vec3) Vec3 {
@@ -35,6 +49,12 @@ const Vec3 = struct {
     pub fn scale(self: Vec3, scalar: f32) Vec3 {
         return Vec3.new(self.x * scalar, self.y * scalar, self.z * scalar);
     }
+
+    // Get length of vector by returning the square root of the
+    // dot product of that vector with itself (every pt^2).
+    pub fn length(self: Vec3) f32 {
+        return @sqrt(self.dot(self));
+    }
 };
 
 const Sphere = struct {
@@ -47,30 +67,73 @@ const Color = struct {
     r: u8 = 100,
     g: u8 = 100,
     b: u8 = 100,
+
+    // Like a vector, we can "scale" a light by multiplying all
+    // of the colors by a number from 0.0 to 1.0.
+    pub fn scale(self: Color, scalar: f32) Color {
+        // Can be over 1.0 when adding multiple lights!
+        const maxscale = @minimum(1.0, scalar);
+        return Color {
+            // I think the right way to do this is to convert the
+            // u8 colors to floats, multiply, then convert back...
+            .r = @floatToInt(u8, @intToFloat(f32, self.r) * maxscale),
+            .g = @floatToInt(u8, @intToFloat(f32, self.g) * maxscale),
+            .b = @floatToInt(u8, @intToFloat(f32, self.b) * maxscale),
+        };
+    }
 };
 
 // The scene is a list of spheres.
 const spheres = [_]Sphere{
-    Sphere{
-        .center = Vec3.new(0, -0.5, 3),
-        .radius = 1,
+    Sphere{ // Big green sphere
+        .center = Vec3.new(0.0, -0.5, 3),
+        .radius = 1.0,
         .color = Color{ .r = 171, .g = 222, .b = 20 },
     },
-    Sphere{
+    Sphere{ // Right top orange
         .center = Vec3.new(0.3, 0.4, 2.5),
         .radius = 0.3,
         .color = Color{ .r = 235, .g = 107, .b = 30 },
     },
-    Sphere{
+    Sphere{ // Left top yellow
         .center = Vec3.new(-0.6, 0.35, 2.7),
         .radius = 0.4,
         .color = Color{ .r = 245, .g = 188, .b = 10 },
     },
-    Sphere{
+    Sphere{ // Big blue sphere in the background
         .center = Vec3.new(2, 0, 4),
-        .radius = 1,
+        .radius = 1.0,
         .color = Color{ .r = 9, .g = 203, .b = 235 },
     },
+};
+
+// Lights!
+const AmbientLight = struct {
+    intensity: f32,
+};
+const PointLight = struct {
+    intensity: f32,
+    position: Vec3,
+};
+const Light = union(enum) {
+    ambient: AmbientLight,
+    point: PointLight,
+};
+
+const lights = [_]Light{
+    Light { // left, bright
+        .point = PointLight {
+            .intensity = 0.7,
+            .position = Vec3.new(-4.0,1.0,1),
+        }
+    },
+    Light { // right back, not as bright
+        .point = PointLight {
+            .intensity = 1.0,
+            .position = Vec3.new(0.4,1.5,3.5),
+        }
+    },
+    Light { .ambient = AmbientLight { .intensity = 0.2, } },
 };
 
 // The "camera" is composed of a viewport and an origin. We trace
@@ -115,6 +178,9 @@ pub fn main() !void {
         var x = x_start;
         while (x < x_end) : (x += 1) { // up from -x to x
 
+            // Uncomment to view rays projected through x -2 and 2
+            //debug = y==0 and (x==-2 or x==2);
+
             // Make a 3D point on the viewport plane corresponding with
             // the canvas pixel we wish to draw.
             const viewport_pt = Vec3{
@@ -138,7 +204,7 @@ pub fn main() !void {
 //  o--vp-----------> ???
 //
 fn traceRay(my_origin_pt: Vec3, viewport_pt: Vec3, min: f32, max: f32) Color {
-    var closest_point = max;
+    var closest_t = max;
     var closest_sphere: ?Sphere = null;
 
     for (spheres) |sphere| {
@@ -150,29 +216,130 @@ fn traceRay(my_origin_pt: Vec3, viewport_pt: Vec3, min: f32, max: f32) Color {
         getRaySphereIntersection(my_origin_pt, viewport_pt, sphere, &t1, &t2);
 
         // See if we have a new closest point and/or closest sphere.
-        if (t1 > min and t1 < max and t1 < closest_point) {
-            closest_point = t1;
+        if (t1 > min and t1 < max and t1 < closest_t) {
+            closest_t = t1;
             closest_sphere = sphere;
         }
-        if (t2 > min and t2 < max and t2 < closest_point) {
-            closest_point = t2;
+        if (t2 > min and t2 < max and t2 < closest_t) {
+            closest_t = t2;
             closest_sphere = sphere;
         }
     }
 
-    // Return the color of the closest sphere on this ray, if any.
+    // If a sphere intersected, let's get its color (adjusted for lighting)
     if (closest_sphere) |sphere| {
-        return sphere.color;
+        // Scale the viewport vector so it ends (intersects!) at the front
+        // surface of the closest sphere.
+        const intersect_vec: Vec3 = viewport_pt.scale(closest_t);
+
+        // Add the intersection vector to the origin point to get the
+        // intersection point on the sphere.
+        const intersect_pt: Vec3 = origin_pt.plus(intersect_vec);
+        //const intersect_pt: Vec3 = viewport_pt.plus(intersect_vec);
+
+        // Make normal vector part 1: subtract sphere center from surface ray
+        // intersection point gives us a directional vector "projecting" through
+        // the center to the surface at that point.
+        const sphere_vec: Vec3 = intersect_pt.minus(sphere.center);
+
+        // Make normal vector part 2: "divide" the vector by its own length,
+        // thereby creating a new vector with a length of 1. That's our normal
+        // vector with a direction perpendicular to the surface of the sphere!
+        // (Dividing by x is the same as multiplying ("scaling") by 1/x.)
+        const normal_vec: Vec3 = sphere_vec.scale(1.0 / sphere_vec.length());
+
+        if(debug){
+            std.log.info("=========== SPHERE {d:.2} {d:.2} {d:.2} =============",
+                .{sphere.center.x,sphere.center.y,sphere.center.z});
+
+            std.log.info("intersect vec: {d:.2} {d:.2} {d:.2}",
+                .{intersect_vec.x,intersect_vec.y,intersect_vec.z});
+
+            std.log.info("intersect pt: {d:.2} {d:.2} {d:.2}",
+                .{intersect_pt.x,intersect_pt.y,intersect_pt.z});
+
+            std.log.info("sphere surface VEC: {d:.2} {d:.2} {d:.2}",
+                .{sphere_vec.x,sphere_vec.y,sphere_vec.z});
+
+            std.log.info("sphere surface NORMAL vec: {d:.2} {d:.2} {d:.2}",
+                .{normal_vec.x,normal_vec.y,normal_vec.z});
+
+        }
+
+        // Pass our normal vector and intersection point to the light calc.
+        const light_intensity = get_light_intensity(intersect_pt, normal_vec);
+
+
+        if(debug){
+            return Color{.r=255,.g=0,.b=100};
+        }
+
+        return sphere.color.scale(light_intensity);
     }
 
     // No sphere, return background (default) color
     return Color{};
 }
 
-// Insersect a sphere!
+fn get_light_intensity(intersect_pt: Vec3 , sphere_normal: Vec3) f32 {
+    //
+    // Then we'll add up all of the light intensities. The intensities are
+    // calculated by dividing the dot product of the normal and light
+    // vectors by the product of the intensities of the normal and light
+    // vectors:
+    //                         L\   ^
+    //        <N,L>              \  |
+    //       -------              \ | N
+    //       |N|*|L|               \|
+    //                        ------|--------- surface of sphere
+    //     Where:
+    //       N = "normal" vector projected from center of sphere
+    //       L = light vector with intensity
+    //
+
+    var intensity: f32 = 0.0;
+
+    for (lights) |light| {
+        switch (light) {
+            Light.ambient => |al| {
+                intensity += al.intensity;
+            },
+            Light.point => |pl| {
+                const light_vector = pl.position.minus(intersect_pt);
+
+                // Let's turn the light direction vector into a normal, just like we
+                // did with the sphere's surface normal vector.
+                // (This is the first time I've diverged from the math in
+                //  "Computer Graphics From Scratch")
+                const light_normal: Vec3 = light_vector.scale(1.0 / light_vector.length());
+
+                // The dot product of these two normal vectors should give us a
+                // range from 1.0 (parallel) to -1.0 (opposite directions - the
+                // light is behind the object).
+                const light_amt = light_normal.dot(sphere_normal) * pl.intensity;
+
+                if(debug){
+                    std.log.info("light_vector {d:.2} {d:.2} {d:.2}",
+                        .{light_vector.x,light_vector.y,light_vector.z});
+                    std.log.info("light_normal {d:.2} {d:.2} {d:.2}",
+                        .{light_normal.x,light_normal.y,light_normal.z});
+                    std.log.info("light_amt {d:.2}",.{light_amt});
+                }
+
+                if (light_amt > 0) {
+                    intensity += light_amt;
+                }
+            },
+        }
+    }
+
+    return @maximum(0,intensity);
+}
+
+// Intersect a sphere!
 //
-//                "boop"   "boop"
-//  o--vp-----------| sphere |---->
+//                    "boop"   "boop"
+//  o--vp---------------| sphere |---->
 //
 fn getRaySphereIntersection(
     my_origin_pt: Vec3,
@@ -283,10 +450,20 @@ fn writeTga() !void {
     }
 }
 
+
 //
 // Tests!
 //
 const expect = @import("std").testing.expect;
+
+test "Vec3 plus" {
+    const a = Vec3.new(3, 7, 3);
+    const b = Vec3.new(3, 2, 1);
+    const c = a.plus(b);
+    try expect(c.x == 6.0);
+    try expect(c.y == 9.0);
+    try expect(c.z == 4.0);
+}
 
 test "Vec3 minus" {
     const a = Vec3.new(1, 2, 3);
@@ -310,4 +487,10 @@ test "Vec3 scale" {
     try expect(c.x == 5);
     try expect(c.y == 10);
     try expect(c.z == 15);
+}
+
+test "Vec3 length" {
+    const a = Vec3.new(1, 2, 3); // TODO: choose numbers which will result in round answers
+    const len = a.length();
+    try expect(len == 2);
 }

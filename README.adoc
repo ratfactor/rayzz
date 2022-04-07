@@ -1,10 +1,9 @@
 = Rayzz
 
-A raytracer in https://ziglang.org/[Zig]. I've just started it!
+A raytracer in https://ziglang.org/[Zig].
 
-It can currently render a simple scene in solid color (no lighting, shadows,
-reflections, etc.).
-
+It can currently render a simple scene of spheres with point and ambient light.
+No shadows or reflectsion yet.
 
 I'm working from the book 
 https://nostarch.com/computer-graphics-scratch[Computer Graphics from Scratch] by Gabriel Gambetta.
@@ -13,4 +12,8 @@ I'm learning a ton and enjoying myself very much.
 
 This is what it can currently render:
 
-image::images/foo1.tga.png[red green and blue spheres that look like boring circles without any lighting]
+image::images/foo2.tga.png[colorful spheres with point and ambient lights actually look like spheres]
+
+This is what it rendered 10 months ago:
+
+image::images/foo1.tga.png[colorful spheres that look like boring circles without any lighting]
