@@ -10,6 +10,9 @@ var debug: bool = false;
 const width: u16 = 640;
 const height: u16 = 480;
 
+// A vec3 can represent a point OR a "direction" in 3d space.
+// TODO: Consider naming all Vec3 uses with "pt", "ray", etc. to make
+//       it unambiguous what each represents.
 const Vec3 = struct {
     x: f32 = 0.0,
     y: f32 = 0.0,
@@ -60,7 +63,8 @@ const Vec3 = struct {
 const Sphere = struct {
     center: Vec3,
     radius: f32,
-    color: Color
+    color: Color,
+    shiny: u8, // 0-255 "shinyness" for specular highlights
 };
 
 const Color = struct {
@@ -71,6 +75,11 @@ const Color = struct {
     // Like a vector, we can "scale" a light by multiplying all
     // of the colors by a number from 0.0 to 1.0.
     pub fn scale(self: Color, scalar: f32) Color {
+
+
+TODO: i think i need to let the color scale beyond1 and shift it 
+towards white in order to show specular highlights
+
         // Can be over 1.0 when adding multiple lights!
         const maxscale = @minimum(1.0, scalar);
         return Color {
@@ -89,21 +98,25 @@ const spheres = [_]Sphere{
         .center = Vec3.new(0.0, -0.5, 3),
         .radius = 1.0,
         .color = Color{ .r = 171, .g = 222, .b = 20 },
+        .shiny = 0,
     },
     Sphere{ // Right top orange
         .center = Vec3.new(0.3, 0.4, 2.5),
         .radius = 0.3,
         .color = Color{ .r = 235, .g = 107, .b = 30 },
+        .shiny = 0,
     },
     Sphere{ // Left top yellow
         .center = Vec3.new(-0.6, 0.35, 2.7),
         .radius = 0.4,
         .color = Color{ .r = 245, .g = 188, .b = 10 },
+        .shiny = 0,
     },
     Sphere{ // Big blue sphere in the background
         .center = Vec3.new(2, 0, 4),
         .radius = 1.0,
         .color = Color{ .r = 9, .g = 203, .b = 235 },
+        .shiny = 0,
     },
 };
 
@@ -179,7 +192,7 @@ pub fn main() !void {
         while (x < x_end) : (x += 1) { // up from -x to x
 
             // Uncomment to view rays projected through x -2 and 2
-            //debug = y==0 and (x==-2 or x==2);
+            debug = y==0 and (x==-2 or x==2);
 
             // Make a 3D point on the viewport plane corresponding with
             // the canvas pixel we wish to draw.
@@ -267,7 +280,12 @@ fn traceRay(my_origin_pt: Vec3, viewport_pt: Vec3, min: f32, max: f32) Color {
         }
 
         // Pass our normal vector and intersection point to the light calc.
-        const light_intensity = get_light_intensity(intersect_pt, normal_vec);
+        const light_intensity = get_light_intensity(
+            intersect_pt,
+            normal_vec,
+            intersect_vec.scale(-1), // here goes nothing! book has "-D"
+            sphere.shiny,
+        );
 
 
         if(debug){
@@ -281,22 +299,12 @@ fn traceRay(my_origin_pt: Vec3, viewport_pt: Vec3, min: f32, max: f32) Color {
     return Color{};
 }
 
-fn get_light_intensity(intersect_pt: Vec3 , sphere_normal: Vec3) f32 {
-    //
-    // Then we'll add up all of the light intensities. The intensities are
-    // calculated by dividing the dot product of the normal and light
-    // vectors by the product of the intensities of the normal and light
-    // vectors:
-    //                         L\   ^
-    //        <N,L>              \  |
-    //       -------              \ | N
-    //       |N|*|L|               \|
-    //                        ------|--------- surface of sphere
-    //     Where:
-    //       N = "normal" vector projected from center of sphere
-    //       L = light vector with intensity
-    //
-
+fn get_light_intensity(
+    intersect_pt: Vec3,  // sphere surface intersection point
+    sphere_normal: Vec3, // 1-unit ray pointing straight out from surface
+    camera_ray: Vec3,    // ray being traced (points at camera)
+    shiny: u8            // specular reflection factor
+) f32 {
     var intensity: f32 = 0.0;
 
     for (lights) |light| {
@@ -305,6 +313,22 @@ fn get_light_intensity(intersect_pt: Vec3 , sphere_normal: Vec3) f32 {
                 intensity += al.intensity;
             },
             Light.point => |pl| {
+                //
+                // DIFFUSE LIGHTING (regular illumination)
+                //
+                // Intensity is calculated by dividing the dot product of the
+                // normal and light vectors by the product of the intensities
+                // of the normal and light vectors:
+                //
+                //                         L\   ^
+                //        <N,L>              \  |
+                //       -------              \ | N
+                //       |N|*|L|               \|
+                //                        ------|--------- surface of sphere
+                //     Where:
+                //       N = "normal" vector projected from center of sphere
+                //       L = light vector with intensity
+                //
                 const light_vector = pl.position.minus(intersect_pt);
 
                 // Let's turn the light direction vector into a normal, just like we
@@ -314,8 +338,8 @@ fn get_light_intensity(intersect_pt: Vec3 , sphere_normal: Vec3) f32 {
                 const light_normal: Vec3 = light_vector.scale(1.0 / light_vector.length());
 
                 // The dot product of these two normal vectors should give us a
-                // range from 1.0 (parallel) to -1.0 (opposite directions - the
-                // light is behind the object).
+                // range from 1.0 (parallel vector) to -1.0 (opposite direction,
+                // the light is behind the object).
                 const light_amt = light_normal.dot(sphere_normal) * pl.intensity;
 
                 if(debug){
@@ -328,6 +352,53 @@ fn get_light_intensity(intersect_pt: Vec3 , sphere_normal: Vec3) f32 {
 
                 if (light_amt > 0) {
                     intensity += light_amt;
+                }
+
+                //
+                // SPECULAR REFLECTION (shiny surface highlights)
+                //
+// P    intersect_pt: Vec3,  // sphere surface intersection point
+// N   sphere_normal: Vec3, // 1-unit ray pointing straight out from surface
+// V   camera_ray: Vec3,    // ray being traced (points at camera)
+// s   shiny: u8            // specular reflection factor
+
+                // light_center is a vector that points straight out of the
+                // sphere (like the normal vector) and is twice the "height".
+
+                // (uh, in the above, L is light_vector)
+
+                const temp: f32 = sphere_normal.dot(light_vector) * 2;
+                const light_center: Vec3 = sphere_normal.scale(temp);
+
+                // The idea is that by subtracting L from light_center, you get the
+                // original "height" (L's "height" is subtracted), and the
+                // direction is the opposite of L's (because we subtracted).
+                const reflection_vector: Vec3 = light_center.minus(light_vector);
+
+                // Now we use the fact that the dot product over the lengths
+                // multiplied gives us an angle relationship of some sort
+                // which has something to do with cosine
+                // (lol, improve on this)
+
+                // the amount of light based on angles and stuff like that
+                // (R dot V) / r.length * v.length
+                const specularness: f32 = reflection_vector.dot(camera_ray)
+                                          / reflection_vector.length()
+                                          * camera_ray.length();
+                // the amount of light based on power of light and shiny factor
+                // specularness ^ shiny * intensity
+                // TODO: apply the shiny POWER on this cosine as shown in the eqn
+                // just above to make rate of falloff of the highlight look more realistic!
+                _=shiny;
+                const specular_light: f32 = specularness * intensity;
+
+                if (specular_light > 0) {
+                    intensity += specular_light;
+                }
+
+                if(debug){
+                    std.log.info("specular_light: {d:.2}, intensity now {d:.2}",
+                        .{specular_light, intensity});
                 }
             },
         }

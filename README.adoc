@@ -2,6 +2,10 @@
 
 A raytracer in https://ziglang.org/[Zig].
 
+*NOTE* 2013-08-09: This project is on hold until I get my project queue thinned out a bit!
+I'm committing some code that doesn't work so I don't lose it. To compile, go back a commit.
+-Dave
+
 It can currently render a simple scene of spheres with point and ambient light.
 No shadows or reflectsion yet.
 
